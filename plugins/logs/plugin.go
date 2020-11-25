@@ -620,7 +620,12 @@ func (p *Plugin) bufferChunk(buffer *logBuffer, bs []byte) {
 
 func (p *Plugin) maskEvent(ctx context.Context, txn storage.Transaction, event *EventV1) error {
 
-	err := func() error {
+	input, err := event.AST()
+	if err != nil {
+		return err
+	}
+
+	rs, err := func() (rego.ResultSet, error) {
 
 		p.maskMutex.Lock()
 		defer p.maskMutex.Unlock()
@@ -639,29 +644,20 @@ func (p *Plugin) maskEvent(ctx context.Context, txn storage.Transaction, event *
 
 			pq, err := r.PrepareForEval(context.Background())
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			p.mask = &pq
 		}
 
-		return nil
+		rs, err := p.mask.Eval(
+			ctx,
+			rego.EvalParsedInput(input),
+			rego.EvalTransaction(txn),
+		)
+
+		return rs, err
 	}()
-
-	if err != nil {
-		return err
-	}
-
-	input, err := event.AST()
-	if err != nil {
-		return err
-	}
-
-	rs, err := p.mask.Eval(
-		ctx,
-		rego.EvalParsedInput(input),
-		rego.EvalTransaction(txn),
-	)
 
 	if err != nil {
 		return err
